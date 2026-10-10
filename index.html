@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ta">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tamil Voice Form</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #eef2ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 14px; }
+    main {
+      width: min(720px, 100%);
+      margin: auto;
+      padding: clamp(22px, 5vw, 42px);
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 20px 60px #312e8130;
+    }
+    h1 { margin: 0 0 10px; color: #4338ca; font-size: clamp(2rem, 7vw, 3.4rem); }
+    h2 { margin: 0 0 12px; color: #3730a3; font-size: 1.15rem; }
+    .intro, .voice-panel, .result {
+      padding: 16px;
+      border-radius: 14px;
+      line-height: 1.6;
+    }
+    .intro { background: #eef2ff; }
+    .voice-panel { margin: 22px 0; border: 1px solid #c7d2fe; background: #f8faff; }
+    .voice-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    button {
+      flex: 1;
+      min-width: 150px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 10px;
+      color: #fff;
+      background: #4f46e5;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.recording { background: #dc2626; }
+    button.secondary { color: #3730a3; background: #e0e7ff; }
+    button:disabled { cursor: wait; opacity: .65; }
+    .status { margin: 12px 0 0; color: #475569; }
+    .result { display: grid; gap: 8px; margin-top: 14px; background: #fff; }
+    .result div { overflow-wrap: anywhere; padding: 10px; border: 1px solid #e2e8f0; border-radius: 9px; }
+    .result strong { color: #4338ca; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    label { display: block; margin-top: 18px; font-weight: 700; }
+    input, textarea, select {
+      width: 100%;
+      margin-top: 7px;
+      padding: 12px;
+      border: 1px solid #c7d2fe;
+      border-radius: 9px;
+      font: inherit;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    .actions { display: flex; gap: 10px; margin-top: 24px; }
+    #submitted { margin-top: 18px; white-space: pre-wrap; color: #166534; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>தமிழ் குரல் படிவம்</h1>
+    <div class="intro">
+      <strong>Speak and fill:</strong>
+      press the speak button, say your details, then press it again. The recording
+      is sent to the AI Worker for transcription and interpretation.
+      <br><br>
+      Example: <em>“என் பெயர் கார்த்திக், வயது 25, ஊர் சென்னை, தொலைபேசி எண் 9876543210, மின்னஞ்சல் karthik@gmail.com”</em>
+    </div>
+
+    <section class="voice-panel">
+      <h2>🎙️ Voice assistant</h2>
+      <div class="voice-row">
+        <button id="speak" type="button">Start speaking</button>
+        <button id="clear" class="secondary" type="button">Clear</button>
+      </div>
+      <p id="status" class="status">Ready. Allow microphone access when asked.</p>
+      <div class="result">
+        <div><strong>Transcript:</strong> <span id="transcript">—</span></div>
+        <div><strong>Intent:</strong> <span id="intent">—</span></div>
+      </div>
+    </section>
+
+    <form id="form">
+      <div class="grid">
+        <label for="name">பெயர் / Name
+          <input id="name" name="name" type="text" autocomplete="name">
+        </label>
+        <label for="age">வயது / Age
+          <input id="age" name="age" type="number">
+        </label>
+        <label for="city">ஊர் / City
+          <input id="city" name="city" type="text">
+        </label>
+        <label for="phone">தொலைபேசி / Phone
+          <input id="phone" name="phone" type="tel" autocomplete="tel">
+        </label>
+      </div>
+      <label for="email">மின்னஞ்சல் / Email
+        <input id="email" name="email" type="email" autocomplete="email">
+      </label>
+      <label for="address">முகவரி / Address
+        <textarea id="address" name="address"></textarea>
+      </label>
+      <label for="language">விருப்ப மொழி / Preferred language
+        <select id="language" name="language">
+          <option value="">Select one</option>
+          <option value="tamil">தமிழ்</option>
+          <option value="english">English</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button type="submit">Submit / சமர்ப்பி</button>
+        <button class="secondary" type="reset">Reset / மீட்டமை</button>
+      </div>
+    </form>
+    <div id="submitted" aria-live="polite"></div>
+  </main>
+
+  <script>
+    const WORKER_URL = "https://sparkling-frost-4a2b.suganth.workers.dev";
+    const speak = document.getElementById("speak");
+    const status = document.getElementById("status");
+    const transcript = document.getElementById("transcript");
+    const intent = document.getElementById("intent");
+    let recorder;
+    let stream;
+    let chunks = [];
+
+    speak.addEventListener("click", async () => {
+      if (recorder?.state === "recording") {
+        recorder.stop();
+        return;
+      }
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = [
+          "audio/ogg;codecs=opus",
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/mp4"
+        ].find(type => MediaRecorder.isTypeSupported(type));
+        if (!mimeType) throw new Error("This browser cannot record a supported audio format.");
+
+        recorder = new MediaRecorder(stream, { mimeType });
+        chunks = [];
+        recorder.addEventListener("dataavailable", event => {
+          if (event.data.size) chunks.push(event.data);
+        });
+        recorder.addEventListener("stop", sendRecording, { once: true });
+        recorder.start();
+        speak.textContent = "Stop speaking";
+        speak.classList.add("recording");
+        status.textContent = "Listening... speak now.";
+      } catch (error) {
+        status.textContent = error.message || "Microphone access failed.";
+      }
+    });
+
+    async function sendRecording() {
+      speak.disabled = true;
+      speak.textContent = "Processing...";
+      speak.classList.remove("recording");
+      stream?.getTracks().forEach(track => track.stop());
+      status.textContent = "Sending audio to the AI Worker...";
+
+      const type = recorder.mimeType;
+      const extension = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "mp4" : "webm";
+      const body = new FormData();
+      body.append("audio", new Blob(chunks, { type }), `voice.${extension}`);
+
+      try {
+        const response = await fetch(`${WORKER_URL}/analyze`, { method: "POST", body });
+        const raw = await response.text();
+        let data;
+        try { data = JSON.parse(raw); }
+        catch { throw new Error(`Worker returned HTTP ${response.status}. Deploy /analyze first.`); }
+        if (!response.ok || !data.success) throw new Error(data.error || "AI transcription failed.");
+
+        transcript.textContent = data.transcript || "No speech detected";
+        intent.textContent = data.intent || "unknown";
+        fillFields(data.fields || {}, data.transcript || "");
+        status.textContent = "Done. The AI understood your speech and filled the form.";
+      } catch (error) {
+        status.textContent = error.message || "Could not process the recording.";
+      } finally {
+        chunks = [];
+        speak.disabled = false;
+        speak.textContent = "Start speaking";
+      }
+    }
+
+    function fillFields(fields, text) {
+      const values = { ...fields };
+      values.email ||= text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+      values.phone ||= text.match(/\b\d{10}\b/)?.[0] || "";
+      for (const [key, value] of Object.entries(values)) {
+        const field = document.getElementById(key);
+        if (!field || !value) continue;
+        field.value = value;
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+
+    document.getElementById("clear").addEventListener("click", () => {
+      transcript.textContent = "—";
+      intent.textContent = "—";
+      status.textContent = "Ready. Allow microphone access when asked.";
+    });
+
+    document.getElementById("form").addEventListener("submit", event => {
+      event.preventDefault();
+      const values = Object.fromEntries(new FormData(event.currentTarget));
+      document.getElementById("submitted").textContent =
+        `Submitted successfully:\n${JSON.stringify(values, null, 2)}`;
+    });
+  </script>
+</body>
+</html>
